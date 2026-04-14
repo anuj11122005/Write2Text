@@ -1,0 +1,64 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Write2Text — Handwritten Word Recognition</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+
+            <h1>Write2Text</h1>
+            <p class="subtitle">Transform handwritten strokes into digital text instantly.</p>
+
+            <div class="model-badge" id="model-badge">
+                <div class="status-dot"></div>
+                <span>Model: CRNN (Epoch <span id="model-epoch">...</span>)</span>
+            </div>
+
+            <div class="options">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="beam_search_toggle">
+                    <label for="beam_search_toggle">Beam Search (More Accurate)</label>
+                </div>
+            </div>
+
+            <div class="upload-zone" id="drop-zone">
+                <input type="file" id="file-input" hidden accept="image/*">
+                <div id="upload-prompt">
+                    <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                    <p>Drag & drop your handwritten word image here</p>
+                    <p style="font-size: 0.8rem; margin-top: 0.5rem;">or click to browse</p>
+                </div>
+                <img id="image-preview" alt="Preview">
+            </div>
+
+            <div class="controls">
+                <button id="predict-btn" class="btn btn-primary" disabled>
+                    <div class="loader" id="loader"></div>
+                    <span id="btn-text">Predict Word</span>
+                </button>
+                <button id="clear-btn" class="btn btn-secondary" style="display: none;">
+                    Clear
+                </button>
+            </div>
+
+            <div id="result-container">
+                <p class="result-label">Predicted Word</p>
+                <div id="prediction" class="predicted-word">...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>

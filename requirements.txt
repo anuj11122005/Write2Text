@@ -1,9 +1,19 @@
-torch
-torchvision
-torchaudio
-pandas
-numpy
-opencv-python
-scikit-learn
-matplotlib
-tqdm
+# Write2Text — Dependencies
+# Install: pip install -r requirements.txt
+
+# Core Deep Learning
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# Data Processing
+pandas>=1.5.0
+numpy>=1.23.0
+opencv-python>=4.7.0
+scikit-learn>=1.2.0
+
+# Visualization
+matplotlib>=3.6.0
+
+# Progress Bars
+tqdm>=4.64.0

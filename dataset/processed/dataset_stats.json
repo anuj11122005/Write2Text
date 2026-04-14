@@ -1,0 +1,11 @@
+{
+  "total_samples": 38203,
+  "train_samples": 30562,
+  "val_samples": 3820,
+  "test_samples": 3821,
+  "vocab_size": 76,
+  "num_classes": 77,
+  "max_label_length": 19,
+  "avg_label_length": 4.31,
+  "min_label_length": 1
+}

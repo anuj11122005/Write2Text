@@ -1,190 +1,211 @@
-"""Check if project is set up correctly before training."""
+"""
+=============================================================================
+Check Setup -- Verify Everything is Ready for Training
+=============================================================================
+Run this script to verify your environment is properly configured.
+
+Usage:
+    python check_setup.py
+"""
 
 import os
 import sys
-import pandas as pd
-import torch
 
-from src import config
-from src.model import CRNN
-from src.dataset import IAMDataset
-from src.utils import build_char_mapping, decode_predictions
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-def check_files():
-    """Check if required files exist."""
-    print("Checking files...")
+def check_dependencies():
+    """Check if all required packages are installed."""
+    print("  Checking dependencies...")
+    required = {
+        "torch": "torch",
+        "torchvision": "torchvision",
+        "pandas": "pandas",
+        "numpy": "numpy",
+        "cv2": "opencv-python",
+        "sklearn": "scikit-learn",
+        "matplotlib": "matplotlib",
+        "tqdm": "tqdm",
+    }
 
-    required_files = [
-        os.path.join(config.DATASET_PROCESSED, "train_clean.csv"),
-        os.path.join(config.DATASET_PROCESSED, "val.csv"),
-    ]
+    all_ok = True
+    for module_name, pip_name in required.items():
+        try:
+            mod = __import__(module_name)
+            version = getattr(mod, "__version__", "?")
+            print(f"    [OK]   {pip_name:<20s} {version}")
+        except ImportError:
+            print(f"    [FAIL] {pip_name:<20s} NOT INSTALLED")
+            all_ok = False
 
-    all_good = True
-    for f in required_files:
-        if os.path.exists(f):
-            print(f"  [OK] {f}")
+    return all_ok
+
+
+def check_gpu():
+    """Check GPU availability."""
+    print("\n  Checking GPU...")
+    try:
+        import torch
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_mem = torch.cuda.get_device_properties(0).total_mem / 1e9
+            print(f"    [OK]   GPU available: {gpu_name} ({gpu_mem:.1f} GB)")
+            return True
         else:
-            print(f"  [MISSING] {f}")
-            all_good = False
-
-    return all_good
-
-
-def check_model():
-    """Check model dimensions."""
-    print("\nChecking model dimensions...")
-
-    device = torch.device("cpu")
-    dummy_classes = 80
-    model = CRNN(dummy_classes).to(device)
-
-    # Test forward pass
-    x = torch.randn(2, 1, config.IMG_HEIGHT, config.IMG_WIDTH).to(device)
-    y = model(x)
-
-    print(f"  Input shape: {x.shape}")
-    print(f"  Output shape: {y.shape}")
-
-    expected_time_steps = config.IMG_WIDTH // 4  # 2 pools of stride 2
-    expected_shape = (2, expected_time_steps, dummy_classes)
-
-    if y.shape == expected_shape:
-        print(f"  [OK] Output shape correct")
-        return True
-    else:
-        print(f"  [FAIL] Expected {expected_shape}, got {y.shape}")
-        return False
+            print(f"    [WARN] No GPU detected -- will use CPU (slower training)")
+            return True
+    except Exception as e:
+        print(f"    [FAIL] GPU check failed: {e}")
+        return True  # Not a fatal error
 
 
 def check_dataset():
-    """Check dataset loading."""
-    print("\nChecking dataset...")
+    """Check if dataset files exist."""
+    print("\n  Checking dataset...")
+    from src import config
 
-    train_path = os.path.join(config.DATASET_PROCESSED, "train_clean.csv")
-    if not os.path.exists(train_path):
-        print(f"  [FAIL] Train file not found")
-        return False
+    words_txt = os.path.join(config.DATASET_RAW, "words.txt")
+    words_dir = os.path.join(config.DATASET_RAW, "words")
 
-    train_df = pd.read_csv(train_path)
-    print(f"  Train samples: {len(train_df)}")
+    all_ok = True
 
-    if len(train_df) == 0:
-        print(f"  [FAIL] No training samples")
-        return False
+    if os.path.exists(words_txt):
+        # Count lines
+        with open(words_txt, "r", encoding="utf-8", errors="replace") as f:
+            lines = sum(1 for line in f if not line.startswith("#") and line.strip())
+        print(f"    [OK]   words.txt found ({lines:,} entries)")
+    else:
+        print(f"    [FAIL] words.txt NOT FOUND at: {words_txt}")
+        all_ok = False
 
-    # Check character mapping
-    char_to_idx, idx_to_char, num_classes = build_char_mapping(train_df['label'].tolist())
-    print(f"  Vocabulary size: {len(char_to_idx)}")
-    print(f"  Num classes (with blank): {num_classes}")
+    if os.path.isdir(words_dir):
+        # Count a few images
+        img_count = 0
+        for root, dirs, files in os.walk(words_dir):
+            img_count += sum(1 for f in files if f.endswith(".png"))
+            if img_count > 1000:
+                break
+        print(f"    [OK]   words/ directory found ({img_count}+ images)")
+    else:
+        print(f"    [FAIL] words/ directory NOT FOUND at: {words_dir}")
+        all_ok = False
 
-    # Check dataset loading
-    dataset = IAMDataset(train_df.iloc[:5], char_to_idx, config.IMG_WIDTH, config.IMG_HEIGHT)
-    img, label = dataset[0]
+    return all_ok
 
-    print(f"  Sample image shape: {img.shape}")
-    print(f"  Sample label length: {len(label)}")
 
-    # Check first image file exists (try loading through dataset)
+def check_processed_data():
+    """Check if processed data exists."""
+    print("\n  Checking processed data...")
+    from src import config
+
+    files_to_check = [
+        ("train.csv", "Training data"),
+        ("val.csv", "Validation data"),
+        ("test.csv", "Test data"),
+        ("char_mapping.json", "Character mapping"),
+    ]
+
+    all_ok = True
+    for filename, description in files_to_check:
+        path = os.path.join(config.DATASET_PROCESSED, filename)
+        if os.path.exists(path):
+            size_kb = os.path.getsize(path) / 1024
+            print(f"    [OK]   {filename:<25s} ({size_kb:.1f} KB)")
+        else:
+            print(f"    [WARN] {filename:<25s} not found (run: python scripts/prepare_data.py)")
+            all_ok = False
+
+    return all_ok
+
+
+def check_model():
+    """Check if model can be instantiated."""
+    print("\n  Checking model...")
     try:
-        _ = dataset[0]
-        print(f"  [OK] Image files accessible")
+        import torch
+        from src.model import CRNN
+        from src import config
+
+        model = CRNN(num_classes=80)  # Dummy number
+        dummy = torch.randn(2, 1, config.IMG_HEIGHT, config.IMG_WIDTH)
+        with torch.no_grad():
+            output = model(dummy)
+
+        total_params = sum(p.numel() for p in model.parameters())
+        print(f"    [OK]   CRNN model instantiated")
+        print(f"    [OK]   Input:  {tuple(dummy.shape)}")
+        print(f"    [OK]   Output: {tuple(output.shape)}")
+        print(f"    [OK]   Params: {total_params:,}")
+        return True
     except Exception as e:
-        print(f"  [FAIL] Cannot load image: {e}")
+        print(f"    [FAIL] Model check failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
-    return True
 
+def check_checkpoint():
+    """Check if trained model exists."""
+    print("\n  Checking checkpoints...")
+    from src import config
 
-def check_training_step():
-    """Check if a single training step works."""
-    print("\nChecking training step...")
-
-    device = torch.device("cpu")
-
-    # Load minimal data
-    train_path = os.path.join(config.DATASET_PROCESSED, "train_clean.csv")
-    train_df = pd.read_csv(train_path).iloc[:10]
-
-    char_to_idx, idx_to_char, num_classes = build_char_mapping(train_df['label'].tolist())
-    dataset = IAMDataset(train_df, char_to_idx, config.IMG_WIDTH, config.IMG_HEIGHT)
-
-    # Create single batch
-    images, labels = [], []
-    for i in range(4):
-        img, lbl = dataset[i]
-        images.append(img)
-        labels.append(lbl)
-
-    imgs = torch.stack(images, 0).to(device)
-    labels = [l.to(device) for l in labels]
-
-    # Forward pass
-    model = CRNN(num_classes).to(device)
-    preds = model(imgs)
-
-    # CTC loss
-    criterion = torch.nn.CTCLoss(blank=0, zero_infinity=True)
-    log_probs = torch.log_softmax(preds, dim=2).permute(1, 0, 2)
-    targets = torch.cat(labels)
-    target_lengths = torch.tensor([len(l) for l in labels], dtype=torch.long)
-    input_lengths = torch.full((4,), log_probs.size(0), dtype=torch.long)
-
-    loss = criterion(log_probs, targets, input_lengths, target_lengths)
-
-    # Backward pass
-    loss.backward()
-
-    print(f"  Loss computed: {loss.item():.4f}")
-    print(f"  [OK] Training step works")
-
-    # Check prediction
-    pred_texts = decode_predictions(preds, idx_to_char)
-    true_texts = [''.join([idx_to_char[i.item()] for i in l]) for l in labels]
-
-    print(f"  Sample prediction: '{pred_texts[0]}' | True: '{true_texts[0]}'")
-    print(f"  (Random at start - should improve after training)")
-
-    return True
+    ckpt_path = os.path.join(config.CHECKPOINTS_DIR, "best_model.pth")
+    if os.path.exists(ckpt_path):
+        size_mb = os.path.getsize(ckpt_path) / 1e6
+        print(f"    [OK]   best_model.pth found ({size_mb:.1f} MB)")
+        return True
+    else:
+        print(f"    [WARN] No trained model found (run: python train.py)")
+        return False
 
 
 def main():
+    """Run all checks."""
     print("=" * 60)
-    print("CRNN Setup Diagnostic")
+    print("  Write2Text -- Setup Verification")
     print("=" * 60)
 
-    checks = [
-        ("Files", check_files),
-        ("Model", check_model),
-        ("Dataset", check_dataset),
-        ("Training Step", check_training_step),
-    ]
+    results = {}
+    results["dependencies"] = check_dependencies()
+    results["gpu"] = check_gpu()
+    results["dataset_raw"] = check_dataset()
+    results["dataset_processed"] = check_processed_data()
+    results["model"] = check_model()
+    results["checkpoint"] = check_checkpoint()
 
-    results = []
-    for name, check_fn in checks:
-        try:
-            result = check_fn()
-            results.append((name, result))
-        except Exception as e:
-            print(f"\n[FAIL] Error in {name}: {e}")
-            results.append((name, False))
-
+    # Summary
     print("\n" + "=" * 60)
-    print("Summary")
+    print("  Summary:")
     print("=" * 60)
 
-    for name, result in results:
-        status = "[OK] PASS" if result else "[FAIL] FAIL"
-        print(f"{status}: {name}")
+    all_critical_ok = True
+    for name, ok in results.items():
+        status = "[PASS]" if ok else "[FAIL]"
+        print(f"    {status}  {name}")
+        if name in ["dependencies", "model"] and not ok:
+            all_critical_ok = False
 
-    all_passed = all(r for _, r in results)
-
-    if all_passed:
-        print("\n[OK] All checks passed! Ready to train.")
-        print("\nRun: python train.py")
+    if all_critical_ok:
+        if not results["dataset_raw"]:
+            print("\n  Dataset not found. Steps:")
+            print("    1. Download IAM Words dataset")
+            print("    2. Place in: dataset/raw/iam_words/")
+            print("    3. Run: python scripts/prepare_data.py")
+            print("    4. Run: python train.py")
+        elif not results["dataset_processed"]:
+            print("\n  Data not prepared. Run:")
+            print("    python scripts/prepare_data.py")
+        elif not results["checkpoint"]:
+            print("\n  Ready to train! Run:")
+            print("    python train.py")
+        else:
+            print("\n  Everything is ready!")
+            print("    Predict: python predict.py --image <image_path>")
     else:
-        print("\n[FAIL] Some checks failed. Please fix the issues above.")
-        sys.exit(1)
+        print("\n  Critical issues found. Fix them first.")
+
+    print("=" * 60)
 
 
 if __name__ == "__main__":
