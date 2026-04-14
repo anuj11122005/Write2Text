@@ -102,8 +102,29 @@ class IAMDataset(Dataset):
 
 
 
+        # ── Robust Contrast Stretching ───────────────────────────────────
+        # User photos often have low contrast (e.g. gray background). 
+        # This stretches the darkest ink to 0 and the lightest paper to 255.
+        img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
+
+        # ── Precision Auto-Crop ──────────────────────────────────────────
+        # Remove excess empty space around the handwriting.
+        # Invert to find ink pixels (ink is dark, so >0 after inversion)
+        inv_img = 255 - img
+        # Threshold to get clear bounding box ignoring light shadows
+        _, mask = cv2.threshold(inv_img, 50, 255, cv2.THRESH_BINARY)
+        coords = cv2.findNonZero(mask)
+        if coords is not None:
+            x, y, w_box, h_box = cv2.boundingRect(coords)
+            pad = 2
+            h, w_img = img.shape
+            y1, y2 = max(0, y-pad), min(h, y+h_box+pad)
+            x1, x2 = max(0, x-pad), min(w_img, x+w_box+pad)
+            img = img[y1:y2, x1:x2]
+
         # ── Strict Padding-to-Ratio Preprocessing ────────────────────────
         h, w = img.shape
+
         target_ratio = self.img_width / self.img_height
         current_ratio = w / h
 
