@@ -100,12 +100,8 @@ def decode_predictions(preds, idx_to_char, blank_idx=0):
     Returns:
         List of decoded strings
     """
-    # Handle different input shapes
+    # Model output is always (batch, time, classes)
     if preds.dim() == 3:
-        if preds.size(0) < preds.size(1):
-            # (time, batch, classes) format → transpose
-            preds = preds.permute(1, 0, 2)  # → (batch, time, classes)
-        # Take argmax over classes dimension
         preds = preds.argmax(dim=2)  # → (batch, time)
 
     texts = []
@@ -195,9 +191,7 @@ def beam_search_decode_batch(preds, idx_to_char, blank_idx=0, beam_width=10):
     Returns:
         List of decoded strings
     """
-    if preds.dim() == 3 and preds.size(0) < preds.size(1):
-        preds = preds.permute(1, 0, 2)
-
+    # Model output is always (batch, time, classes)
     # Convert to log probabilities
     log_probs = torch.log_softmax(preds, dim=2)
 

@@ -32,11 +32,16 @@ def setup_colab():
     print("=" * 60)
 
     try:
-        from google.colab import drive
-        drive.mount("/content/drive")
-        print("  ✓ Google Drive mounted")
-    except ImportError:
-        print("  [INFO] Not running in Colab, skipping drive mount")
+        # Check if running in Colab environment
+        import importlib.util
+        if importlib.util.find_spec("google.colab") is not None:
+            from google.colab import drive
+            drive.mount("/content/drive")
+            print("  ✓ Google Drive mounted")
+        else:
+            print("  [INFO] Not running in Colab, skipping drive mount")
+    except Exception:
+        print("  [INFO] Could not mount Drive (expected if not in Colab)")
 
     # ── Step 2: Install Dependencies ─────────────────────────────────────
     print("\n" + "=" * 60)

@@ -46,21 +46,26 @@ def init_model():
     checkpoint = load_checkpoint(CHECKPOINT_PATH, device)
     char_to_idx = checkpoint["char_to_idx"]
     idx_to_char = checkpoint["idx_to_char"]
+    # Convert keys to int if they are strings (JSON artifacts)
+    idx_to_char = {int(k): v for k, v in idx_to_char.items()}
     num_classes = checkpoint.get("num_classes", len(char_to_idx) + 1)
+    
+    # Build model based on checkpoint configuration
+    model = CRNN(num_classes).to(device)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
+    model_epoch = checkpoint.get("epoch", 0)
 
     # Store metadata
     metrics = checkpoint.get("metrics", {})
     model_meta = {
-        "epoch": checkpoint.get("epoch", "Unknown"),
+        "epoch": model_epoch,
         "val_loss": checkpoint.get("val_loss", 0),
         "cer": metrics.get("cer", 0),
         "word_acc": metrics.get("word_acc", 0),
         "device": str(device)
     }
 
-    model = CRNN(num_classes).to(device)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
     print(f"[Web] Model loaded successfully on {device}")
     return True
 
@@ -73,6 +78,9 @@ def model_info():
     if model is None:
         init_model()
     return jsonify(model_meta)
+
+
+import time
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -92,12 +100,13 @@ def predict():
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
 
-        # Use beam search by default for better accuracy in web app if parameters allow
-        use_beam_search = request.form.get('beam_search', 'false').lower() == 'true'
-        beam_width = int(request.form.get('beam_width', config.BEAM_WIDTH))
 
+        use_beam_search = request.form.get('beam_search', 'false').lower() == 'true'
+        # Maximize beam width for ultimate accuracy
+        beam_width = 100 if use_beam_search else int(request.form.get('beam_width', config.BEAM_WIDTH))
+
+        start_time = time.time()
         try:
-            # Create a temporary dataset item
             df = pd.DataFrame([{"image_path": filepath, "label": ""}])
             dataset = IAMDataset(df, char_to_idx, augment=False)
             
@@ -106,13 +115,22 @@ def predict():
 
             with torch.no_grad():
                 preds = model(img)
+                # Softmax to get probabilities
+                probs = torch.softmax(preds, dim=2)
+                max_probs, _ = torch.max(probs, dim=2)
+                confidence = max_probs.mean().item() * 100 # Rough heuristic for confidence
+
                 if use_beam_search:
                     pred_texts = beam_search_decode_batch(preds, idx_to_char, beam_width=beam_width)
                 else:
                     pred_texts = decode_predictions(preds, idx_to_char)
             
+            inference_time = (time.time() - start_time) * 1000 # ms
+            
             return jsonify({
                 'prediction': pred_texts[0],
+                'confidence': round(confidence, 2),
+                'time': round(inference_time, 2),
                 'status': 'success',
                 'meta': model_meta
             })

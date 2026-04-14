@@ -6,59 +6,38 @@ document.addEventListener('DOMContentLoaded', () => {
     const uploadPrompt = document.getElementById('upload-prompt');
     const predictBtn = document.getElementById('predict-btn');
     const clearBtn = document.getElementById('clear-btn');
-    const resultContainer = document.getElementById('result-container');
+    const resultArea = document.getElementById('result-area');
     const predictionText = document.getElementById('prediction');
+    const confVal = document.getElementById('conf-val');
+    const timeVal = document.getElementById('time-val');
     const loader = document.getElementById('loader');
     const btnText = document.getElementById('btn-text');
-
     const beamSearchToggle = document.getElementById('beam_search_toggle');
     const modelEpoch = document.getElementById('model-epoch');
+    const historyList = document.getElementById('history-list');
 
-    // Fetch model info on load
+    let history = [];
+
+    // Initialize Model Info
     async function fetchModelInfo() {
         try {
             const response = await fetch('/model_info');
             const data = await response.json();
             modelEpoch.innerText = data.epoch;
-            // Optionally update title or other info with word_acc/cer
-        } catch (e) {
-            console.error('Could not fetch model info', e);
-        }
+        } catch (e) { console.error(e); }
     }
     fetchModelInfo();
 
     let selectedFile = null;
 
-    // Trigger file input on click
-    dropZone.addEventListener('click', () => {
-        if (!selectedFile) {
-            fileInput.click();
-        }
-    });
+    dropZone.addEventListener('click', () => { if (!selectedFile) fileInput.click(); });
 
-    // Drag and drop handlers
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropZone.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            dropZone.classList.add('dragging');
-        }, false);
-    });
-
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('dragging');
-        }, false);
-    });
-
+    fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = 'var(--primary)'; });
+    dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = 'var(--glass-border)'; });
     dropZone.addEventListener('drop', (e) => {
-        const file = e.dataTransfer.files[0];
-        handleFile(file);
-    });
-
-    fileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        handleFile(file);
+        e.preventDefault();
+        handleFile(e.dataTransfer.files[0]);
     });
 
     function handleFile(file) {
@@ -71,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 uploadPrompt.style.display = 'none';
                 predictBtn.disabled = false;
                 clearBtn.style.display = 'block';
-                resultContainer.style.display = 'none';
+                resultArea.style.display = 'none';
             };
             reader.readAsDataURL(file);
         }
@@ -79,50 +58,79 @@ document.addEventListener('DOMContentLoaded', () => {
 
     clearBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        resetUI();
+    });
+
+    function resetUI() {
         selectedFile = null;
         fileInput.value = '';
         imagePreview.style.display = 'none';
         uploadPrompt.style.display = 'block';
         predictBtn.disabled = true;
         clearBtn.style.display = 'none';
-        resultContainer.style.display = 'none';
-    });
+        resultArea.style.display = 'none';
+        dropZone.style.borderColor = 'var(--glass-border)';
+    }
 
     predictBtn.addEventListener('click', async () => {
         if (!selectedFile) return;
 
-        // Show loading state
         predictBtn.disabled = true;
         loader.style.display = 'inline-block';
-        btnText.innerText = 'Analyzing...';
-        resultContainer.style.display = 'none';
+        btnText.innerText = 'Analyzing Neural Path...';
 
         const formData = new FormData();
         formData.append('image', selectedFile);
         formData.append('beam_search', beamSearchToggle.checked);
 
         try {
-            const response = await fetch('/predict', {
-                method: 'POST',
-                body: formData
-            });
-
+            const response = await fetch('/predict', { method: 'POST', body: formData });
             const data = await response.json();
 
             if (data.status === 'success') {
-                predictionText.innerText = data.prediction;
-                resultContainer.style.display = 'block';
-                resultContainer.scrollIntoView({ behavior: 'smooth' });
+                displayResult(data);
+                addToHistory(data.prediction, data.confidence, imagePreview.src);
             } else {
-                alert('Error: ' + data.error);
+                alert('Analysis Error: ' + data.error);
             }
         } catch (error) {
-            console.error('Error:', error);
-            alert('An error occurred during prediction.');
+            console.error(error);
+            alert('Critial Neural Link Failure.');
         } finally {
             predictBtn.disabled = false;
             loader.style.display = 'none';
-            btnText.innerText = 'Predict Word';
+            btnText.innerText = 'Execute Prediction';
         }
     });
+
+    function displayResult(data) {
+        predictionText.innerText = data.prediction || "[NULL]";
+        confVal.innerText = data.confidence + "%";
+        timeVal.innerText = data.time + "ms";
+        resultArea.style.display = 'block';
+        
+        // Dynamic color based on confidence
+        if (data.confidence > 80) confVal.style.color = '#10b981';
+        else if (data.confidence > 50) confVal.style.color = '#f59e0b';
+        else confVal.style.color = '#ef4444';
+    }
+
+    function addToHistory(word, conf, imgSrc) {
+        if (history.length === 0) historyList.innerHTML = '';
+        
+        const item = { word, conf, time: new Date().toLocaleTimeString() };
+        history.unshift(item);
+        if (history.length > 10) history.pop();
+
+        const html = `
+            <div class="history-item">
+                <img src="${imgSrc}" class="history-thumb">
+                <div class="history-info">
+                    <div class="history-word">${word}</div>
+                    <div class="history-meta">${item.time} • ${conf}% Match</div>
+                </div>
+            </div>
+        `;
+        historyList.insertAdjacentHTML('afterbegin', html);
+    }
 });

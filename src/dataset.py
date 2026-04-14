@@ -100,39 +100,35 @@ class IAMDataset(Dataset):
         if img is None:
             raise ValueError(f"Cannot load image: {path}")
 
-        # ── Aspect-ratio-preserving padding ──────────────────────────────
+
+
+        # ── Strict Padding-to-Ratio Preprocessing ────────────────────────
         h, w = img.shape
         target_ratio = self.img_width / self.img_height
         current_ratio = w / h
 
         if current_ratio > target_ratio:
-            # Image is too wide → pad top/bottom
+            # Image is too wide → pad top/bottom to reach ratio
             new_h = int(w / target_ratio)
             pad_top = (new_h - h) // 2
             pad_bottom = new_h - h - pad_top
-            img = cv2.copyMakeBorder(
-                img, pad_top, pad_bottom, 0, 0,
-                cv2.BORDER_CONSTANT, value=255
-            )
+            img = cv2.copyMakeBorder(img, pad_top, pad_bottom, 0, 0, 
+                                   cv2.BORDER_CONSTANT, value=255)
         else:
-            # Image is too tall → pad left/right
+            # Image is too tall → pad left/right to reach ratio
             new_w = int(h * target_ratio)
             pad_left = (new_w - w) // 2
             pad_right = new_w - w - pad_left
-            img = cv2.copyMakeBorder(
-                img, 0, 0, pad_left, pad_right,
-                cv2.BORDER_CONSTANT, value=255
-            )
+            img = cv2.copyMakeBorder(img, 0, 0, pad_left, pad_right, 
+                                   cv2.BORDER_CONSTANT, value=255)
 
-        # ── Resize to fixed dimensions ───────────────────────────────────
-        img = cv2.resize(img, (self.img_width, self.img_height),
+        # Now resize to fixed dimensions WITHOUT stretching
+        img = cv2.resize(img, (self.img_width, self.img_height), 
                          interpolation=cv2.INTER_AREA)
-
-        # ── Normalize ────────────────────────────────────────────────────
+        
+        # Standard Normalization
         img = img.astype(np.float32) / 255.0
-        # Invert: white background (1.0) → 0, black text (0.0) → 1
         img = 1.0 - img
-        # Normalize to [-1, 1]
         img = (img - 0.5) / 0.5
 
         # ── Augmentation (training only) ─────────────────────────────────
