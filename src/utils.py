@@ -129,53 +129,67 @@ def beam_search_decode(log_probs, idx_to_char, blank_idx=0, beam_width=10):
     """
     CTC Beam Search Decoding — explores multiple hypotheses for better accuracy.
 
-    This is a simplified prefix beam search that maintains the top-K candidates
-    at each timestep. Significantly better than greedy decoding for noisy outputs.
+    Properly handles CTC rules: collapses repeated characters unless separated by a blank.
+    Uses DP to sum probabilities of all alignments that lead to the same text.
 
     Args:
-        log_probs: Log probabilities from model, shape (time, classes) — single sample
+        log_probs: Log probabilities, shape (time, classes)
         idx_to_char: Dict mapping index → character
         blank_idx: Index of CTC blank token
-        beam_width: Number of beams to keep (default: 10)
+        beam_width: Number of beams to keep
 
     Returns:
         Best decoded string
     """
     T, C = log_probs.shape
-    probs = np.exp(log_probs)  # Convert log-probs to probs
+    probs = np.exp(log_probs)
 
-    # Each beam: (prefix_string, probability)
-    beams = [("", 1.0)]
+    # Dictionary of {prefix: (prob_blank, prob_non_blank)}
+    # prob_blank: Probability of paths ending in blank
+    # prob_non_blank: Probability of paths ending in a real char
+    beams = {("",): (1.0, 0.0)}
 
     for t in range(T):
         new_beams = {}
-
-        for prefix, prob in beams:
+        for prefix, (p_b, p_nb) in beams.items():
             for c in range(C):
                 p = probs[t, c]
-                new_prob = prob * p
 
                 if c == blank_idx:
                     # Blank extends the same prefix
-                    key = prefix
-                elif prefix and idx_to_char.get(c, "") == prefix[-1]:
-                    # Same character as last → collapse (CTC rule)
-                    key = prefix
+                    # Path ends in blank, so add to p_b
+                    curr_p_b, curr_p_nb = new_beams.get(prefix, (0.0, 0.0))
+                    new_beams[prefix] = (curr_p_b + (p_b + p_nb) * p, curr_p_nb)
                 else:
-                    # New character
-                    key = prefix + idx_to_char.get(c, "")
+                    char = idx_to_char.get(c, "")
+                    last_char = prefix[-1] if prefix else ""
+                    
+                    if char == last_char:
+                        # Character is the same as last one in prefix.
+                        
+                        # 1. Path where we repeat without a separator blank:
+                        # (collapses, does not change prefix). Ends in non-blank.
+                        curr_p_b, curr_p_nb = new_beams.get(prefix, (0.0, 0.0))
+                        new_beams[prefix] = (curr_p_b, curr_p_nb + p_nb * p)
+                        
+                        # 2. Path where there was a separator blank:
+                        # (creates a new character). Ends in non-blank.
+                        new_prefix = prefix + (char,)
+                        curr_n_p_b, curr_n_p_nb = new_beams.get(new_prefix, (0.0, 0.0))
+                        new_beams[new_prefix] = (curr_n_p_b, curr_n_p_nb + p_b * p)
+                    else:
+                        # Character is different. Always extends prefix.
+                        new_prefix = prefix + (char,)
+                        curr_n_p_b, curr_n_p_nb = new_beams.get(new_prefix, (0.0, 0.0))
+                        new_beams[new_prefix] = (curr_n_p_b, curr_n_p_nb + (p_b + p_nb) * p)
 
-                if key in new_beams:
-                    new_beams[key] = new_beams[key] + new_prob
-                else:
-                    new_beams[key] = new_prob
+        # Sort beams by total probability and keep top K
+        sorted_beams = sorted(new_beams.items(), key=lambda x: x[1][0] + x[1][1], reverse=True)
+        beams = {k: v for k, v in sorted_beams[:beam_width]}
 
-        # Keep top-K beams
-        sorted_beams = sorted(new_beams.items(), key=lambda x: x[1], reverse=True)
-        beams = sorted_beams[:beam_width]
-
-    # Return best beam
-    return beams[0][0] if beams else ""
+    # Return best beam as a joined string
+    best_prefix = list(beams.keys())[0] if beams else ()
+    return "".join(best_prefix)
 
 
 def beam_search_decode_batch(preds, idx_to_char, blank_idx=0, beam_width=10):
@@ -197,7 +211,7 @@ def beam_search_decode_batch(preds, idx_to_char, blank_idx=0, beam_width=10):
 
     texts = []
     for i in range(log_probs.size(0)):
-        sample_log_probs = log_probs[i].cpu().numpy()
+        sample_log_probs = log_probs[i].detach().cpu().numpy()
         text = beam_search_decode(
             sample_log_probs, idx_to_char,
             blank_idx=blank_idx, beam_width=beam_width
